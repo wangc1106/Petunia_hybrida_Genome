@@ -93,15 +93,15 @@ software/juicer-1.6/Local/scripts/juicer.sh \
 -z ${dir}/reference_hic_hp1/hap1.ctg.fa \
 -D software/juicer-1.6/Local
 
-/xtdisk/xueyb_group/wangchenA/software/3d-dna-master-error-debug/run-asm-pipeline.sh \
+run-asm-pipeline.sh \
 -r 0 \
-/xtdisk/xueyb_group/wangchenA/Petunia_denovo/HiFi/04.juicer/reference_hic_hp1_0926/hap1.ctg.wrapped.fasta \
-/xtdisk/xueyb_group/wangchenA/Petunia_denovo/HiFi/04.juicer/work_hic_hp1_0926/aligned/merged_nodups.txt
+04.juicer/reference_hic_hp1/hap1.ctg.wrapped.fasta \
+04.juicer/work_hic_hp1/aligned/merged_nodups.txt
 
-/xtdisk/xueyb_group/wangchenA/software/3d-dna-master-error-debug/run-asm-pipeline-post-review.sh \
--r ./hap1.ctg.wrapped.FINAL1.review6.assembly \
-reference_hic_hp1/hap1.ctg.wrapped.fasta \
-work_hic_hp1/aligned/merged_nodups.txt
+run-asm-pipeline-post-review.sh \
+-r ./hap1.ctg.wrapped.FINAL.review.assembly \
+04.juicer/reference_hic_hp1/hap1.ctg.wrapped.fasta \
+04.juicer/work_hic_hp1/aligned/merged_nodups.txt
 
 ########### TGS-GapCloser ###########
 tgsgapcloser \
@@ -114,4 +114,53 @@ tgsgapcloser \
 --java /usr/bin/java \
 --thread 56 \
 --pilon_mem 100G \
+
+########### Repetitive elements annotation ###########
+EDTA.pl --genome S3L_hap1_T2T.fa \
+--species others \
+--step all \
+--overwrite 0 \
+--curatedlib edcotrep.fa \
+--sensitive 1 \
+--anno 1 \
+--threads 48
+
+### TE-free Protein Database
+RepeatPepsLib=repeatmasker_4.1.2.p1/share/RepeatMasker/Libraries/RepeatPeps.lib
+makeblastdb -dbtype prot -in $RepeatPepsLib -out RepeatPeps.lib
+wget ftp://ftp.ncbi.nlm.nih.gov/blast/db/taxdb.tar.gz
+gunzip taxdb.tar.gz
+tar -xvf taxdb.tar
+blastp -query Solanum.fa -db RepeatPeps.lib -outfmt '6 qseqid staxids bitscore std sscinames sskingdoms stitle' -max_target_seqs 25 -culling_limit 2 -num_threads 8 -evalue 1e-5 -out blastp.out
+perl fastaqual_select.pl -f Solanum.fa -e <(awk '{print $1}' blastp.out | sort | uniq) > Solanum_no_TES.fa
+
+### Cleaning and redundancy removal
+makeblastdb -in Solanum_no_TES.fa -dbtype prot
+blastx -query S3L_hap1.EDTA.TElib.fa -db Solanum_no_TES.fa \
+-outfmt '6 qseqid staxids bitscore std sscinames sskingdoms stitle' -max_target_seqs 25 -culling_limit 2 -num_threads 48 -evalue 1e-10 \
+-out S3L_hap1_blast.out
+perl fastaqual_select.pl -f S3L_hap1.EDTA.TElib.fa -e <(awk '{print $1}' S3L_hap1_blast.out | sort | uniq) > S3L_hap1.EDTA.TElib_noprot.lib
+cd-hit-est -i S3L_hap1.EDTA.TElib_noprot.lib -o S3L_hap1.EDTA.TElib_noprot.Final.lib -c 0.95 -n 10 -p 1 -d 0 -T 48 -M 40000 > S3L_hap1_cdhit.repeat_library_95.log
+
+### soft-masking
+RepeatMasker -xsmall -e ncbi -lib S3L_hap1.EDTA.TElib_noprot.Final.lib -pa 40 -gff -dir ./S3L_hp1_EDTAlib/ ${fa} -no_is -norna -nolow > S3L_hp1_EDTAlib.mask.log
+
+########### Gene prediction ###########
+### RNAser evidence for annotation
+hisat2 -p 10 --dta -x S3L_hap1_hisat2/S3L_hap1_mask -1 ${data}/${bam}.clean.R1.fastq.gz -2 ${data}/${bam}.clean.R2.fastq.gz | samtools sort -@ 4 > bam6RNA_S3L_hap1_t2t/${bam}.raw.bam
+samtools index bam6RNA_S3L_hap1_t2t/${bam}.raw.bam
+
+### BRAKER3 pipeline for annotation
+bam=03.hisat2/bam6RNA_S3L_hap1
+bam72=03.hisat2/bam72RNA_S3L_hap1
+perl braker.pl \
+--genome=S3L_hap1.fa.masked \
+--bam ${bam}/ZB7-1-Po_L2_L7_UDI378.uniq.bam,${bam}/ZB7-2-1-le_L8_UDI380.uniq.bam,${bam}/ZH-3LB7leaf-1_L1_352X52.uniq.bam,${bam}/ZH-3LB7pistil_L1_353X53.uniq.bam,${bam}/ZH-3LB7pistil_L1_371X71.uniq.bam,${bam}/ZH-3LB7pollen_L1_354X54.uniq.bam,${bam72}/SRR1649125.uniq.bam,${bam72}/SRR1649126.uniq.bam,${bam72}/SRR1649127.uniq.bam,${bam72}/SRR1649128.uniq.bam,${bam72}/SRR1649129.uniq.bam,${bam72}/SRR1649130.uniq.bam,${bam72}/SRR1649131.uniq.bam,${bam72}/SRR1649132.uniq.bam,${bam72}/SRR1649133.uniq.bam,${bam72}/SRR1649134.uniq.bam,${bam72}/SRR1649135.uniq.bam,${bam72}/SRR1649136.uniq.bam,${bam72}/SRR1649137.uniq.bam,${bam72}/SRR1649138.uniq.bam,${bam72}/SRR1649139.uniq.bam,${bam72}/SRR1649140.uniq.bam,${bam72}/SRR1649141.uniq.bam,${bam72}/SRR1649142.uniq.bam,${bam72}/SRR3101741.uniq.bam,${bam72}/SRR3101743.uniq.bam,${bam72}/SRR3101745.uniq.bam,${bam72}/SRR3101747.uniq.bam,${bam72}/SRR3101749.uniq.bam,${bam72}/SRR3101751.uniq.bam,${bam72}/SRR3101753.uniq.bam,${bam72}/SRR3101755.uniq.bam,${bam72}/SRR3101757.uniq.bam,${bam72}/SRR3101759.uniq.bam,${bam72}/SRR3101760.uniq.bam,${bam72}/SRR3101761.uniq.bam,${bam72}/SRR3101768.uniq.bam,${bam72}/SRR3101769.uniq.bam,${bam72}/SRR3101771.uniq.bam,${bam72}/SRR5419465.uniq.bam,${bam72}/SRR5419466.uniq.bam,${bam72}/SRR5419467.uniq.bam,${bam72}/SRR5419468.uniq.bam,${bam72}/SRR5419469.uniq.bam,${bam72}/SRR5419470.uniq.bam,${bam72}/SRR5419471.uniq.bam,${bam72}/SRR5419472.uniq.bam,${bam72}/SRR5419474.uniq.bam,${bam72}/SRR5419475.uniq.bam,${bam72}/SRR5419476.uniq.bam,${bam72}/SRR5419477.uniq.bam,${bam72}/SRR5419478.uniq.bam,${bam72}/SRR5419479.uniq.bam,${bam72}/SRR5419480.uniq.bam,${bam72}/SRR5419481.uniq.bam,${bam72}/SRR5419482.uniq.bam,${bam72}/SRR5419483.uniq.bam,${bam72}/SRR5419484.uniq.bam,${bam72}/SRR5419485.uniq.bam,${bam72}/SRR5419486.uniq.bam,${bam72}/SRR5419487.uniq.bam,${bam72}/SRR5419488.uniq.bam,${bam72}/SRR5419489.uniq.bam,${bam72}/SRR5419490.uniq.bam,${bam72}/SRR5419491.uniq.bam,${bam72}/SRR5419492.uniq.bam,${bam72}/SRR5419493.uniq.bam,${bam72}/SRR5419494.uniq.bam \
+--prot_seq=Closed_species_pep.fa \
+--species=S3L_hap1 --gff3 \
+--AUGUSTUS_ab_initio \
+--threads 20 \
+--workingdir=S3L_hap1 \
+--augustus_args="--genemodel=complete --strand=both --alternatives-from-evidence=true --noInFrameStop=true" \
+> S3L_hap1.log 2>&1
 
