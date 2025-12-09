@@ -151,7 +151,9 @@ hisat2 -p 10 --dta -x S3L_hap1_hisat2/S3L_hap1_mask -1 ${data}/${bam}.clean.R1.f
 samtools index bam6RNA_S3L_hap1_t2t/${bam}.raw.bam
 
 ### BRAKER3 pipeline for annotation
+# tissue-specific RNAseq for leaf, pistil and pollen
 bam=03.hisat2/bam6RNA_S3L_hap1
+# public RNAseq data of P. hybrida
 bam72=03.hisat2/bam72RNA_S3L_hap1
 perl braker.pl \
 --genome=S3L_hap1.fa.masked \
