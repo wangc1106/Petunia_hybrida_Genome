@@ -1,1 +1,16 @@
-#
+#### Quality assessment and trimming of P.hybrida S3LS3L Illumina reads, Genome Survey ####
+# fastqc quality assessment
+  fastqc read_R1.fastq.gz -o ./
+  fastqc read_R2.fastq.gz -o ./
+# fastp trimming
+	fastp -i read_R1.fastq.gz -I read_R2.fastq.gz -o read_clean.R1.fastq.gz -O read_clean.R2.fastq.gz -q 20 -n 0 -w 8
+# jellyfish
+  jellyfish count -m 17 -s 5G -t 16 -o Survey_fastp_k17.jf -C <(zcat read_clean.R1.fastq.gz) <(zcat read_clean.R2.fastq.gz) > jellyfish-survey-fastp-k17.log 2>&1 &
+  jellyfish histo -l 1 -h 10000 -t 4 ./Survey_fastp_k17.jf > S3LSurvey_fastp_k17.jf.10000.histo &
+  jellyfish histo -l 1 -h 1000000 -t 4 ./Survey_fastp_k17.jf > S3LSurvey_fastp_k17.jf.1000000.histo &
+# GenomeScope analyzing
+  Rscript /xtdisk/xueyb_group/wangchenA/software/genomescope-master/genomescope.R S3LSurvey_fastp_k17.jf.1000000.histo 17 150 ./histo-1000000/
+
+### hifiasm assembly ###
+hifiasm -o ./S3L.ont.hifi.hic -t 64 --h1 ${hic1} --h2 ${hic2} --ul ${ont} ${hifi}
+
