@@ -1,16 +1,117 @@
-#### Quality assessment and trimming of P.hybrida S3LS3L Illumina reads, Genome Survey ####
-# fastqc quality assessment
+########### Quality assessment and trimming of P.hybrida S3LS3L Illumina reads, Genome Survey ###########
+### fastqc quality assessment
   fastqc read_R1.fastq.gz -o ./
   fastqc read_R2.fastq.gz -o ./
-# fastp trimming
+### fastp trimming
 	fastp -i read_R1.fastq.gz -I read_R2.fastq.gz -o read_clean.R1.fastq.gz -O read_clean.R2.fastq.gz -q 20 -n 0 -w 8
-# jellyfish
+### jellyfish
   jellyfish count -m 17 -s 5G -t 16 -o Survey_fastp_k17.jf -C <(zcat read_clean.R1.fastq.gz) <(zcat read_clean.R2.fastq.gz) > jellyfish-survey-fastp-k17.log 2>&1 &
   jellyfish histo -l 1 -h 10000 -t 4 ./Survey_fastp_k17.jf > S3LSurvey_fastp_k17.jf.10000.histo &
   jellyfish histo -l 1 -h 1000000 -t 4 ./Survey_fastp_k17.jf > S3LSurvey_fastp_k17.jf.1000000.histo &
-# GenomeScope analyzing
+### GenomeScope analyzing
   Rscript /xtdisk/xueyb_group/wangchenA/software/genomescope-master/genomescope.R S3LSurvey_fastp_k17.jf.1000000.histo 17 150 ./histo-1000000/
 
-### hifiasm assembly ###
+########### hifiasm assembly ###########
 hifiasm -o ./S3L.ont.hifi.hic -t 64 --h1 ${hic1} --h2 ${hic2} --ul ${ont} ${hifi}
+
+########### nextDenovo assembly & polish ###########
+### nextDenovo assembly
+nextDenovo run.cfg
+cat run.cfg
+[General]
+job_type = local # local, slurm, sge, pbs, lsf
+job_prefix = S3L_pass_ul
+task = all # all, correct, assemble
+rewrite = yes # yes/no
+deltmp = yes
+parallel_jobs = 8 # number of tasks used to run in parallel
+input_type = raw # raw, corrected
+read_type = ont # clr, ont, hifi
+input_fofn = input.fofn
+workdir = 01_rundir
+#usetempdir = ./tmp_3L/ # usetempdir cannot be used with local
+[correct_option]
+read_cutoff = 50k
+genome_size = 1300M # estimated genome size
+sort_options = -m 20g -t 8 #-m 20g -t 15
+minimap2_options_raw = -t 8 #-t 8
+pa_correction = 3 # number of corrected tasks used to run in parallel, each corrected task requires ~TOTAL_INPUT_BASES/4 bytes of memory usage.
+correction_options = -p 8
+[assemble_option]
+minimap2_options_cns = -t 8
+nextgraph_options = -a 1
+
+### nextPolish hifi 3 round polish
+nextPolish run.cfg
+cat run.cfg
+[General]
+job_type = local # local, sge, pbs… (default: sge)
+job_prefix = S3L_ont_hifiPolish # prefix tag for jobs. (default: nextPolish)
+task = best #task need to run [all, default, best, 1, 2, 5, 12, 1212…], 1, 2 are different algorithm modules for short reads, while 5 is the algorithm module for long reads, all=[5]1234, default=[5]12, best=[55]1212. (default: best)
+rewrite = yes #overwrite existed directory [yes, no]. (default: no)
+deltmp = yes #delete intermediate results. (default: yes)
+rerun = 3 #re-run unfinished jobs untill finished or reached ${rerun} loops, 0=no. (default: 3)
+parallel_jobs = 6 #number of tasks used to run in parallel. (default: 6)
+multithread_jobs = 6 #number of threads used to in a task. (default: 5)
+genome = /xtdisk/xueyb_group/wangchenA/Petunia_denovo/S3L_NextDenovo_20240702/01.ont_pass_ul_fq/01_rundir/03.ctg_graph/nd.asm.fasta #
+genome_size = auto #genome size, auto = calculate genome size using the input ${genome} file. (default: auto)
+workdir = ./01_hifi_polish_r3 #
+polish_options = -p {multithread_jobs}
+[hifi_option] #optional
+hifi_fofn = ./hifi.fofn #input hifi read files list, one file one line.
+hifi_options = -min_read_len 10k -max_depth 100
+hifi_minimap2_options = -x asm20 -t 36 #minimap2 options, used to set hifi reads mapping. (required)
+
+### nextPolish ngs 4 round polish
+nextPolish run.cfg
+cat run_sgs.cfg
+[General]
+job_type = local # local, sge, pbs… (default: sge)
+job_prefix = S3L_ont_hifi_sgs_Polish # prefix tag for jobs. (default: nextPolish)
+task = best #task need to run [all, default, best, 1, 2, 5, 12, 1212…], 1, 2 are different algorithm modules for short reads, while 5 is the algorithm module for long reads, all=[5]1234, default=[5]12, best=[55]1212. (default: best)
+rewrite = yes #overwrite existed directory [yes, no]. (default: no)
+deltmp = yes #delete intermediate results. (default: yes)
+rerun = 4 #re-run unfinished jobs untill finished or reached ${rerun} loops, 0=no. (default: 3)
+parallel_jobs = 6 #number of tasks used to run in parallel. (default: 6)
+multithread_jobs = 6 #number of threads used to in a task. (default: 5)
+genome = /xtdisk/xueyb_group/wangchenA/Petunia_denovo/S3L_NextDenovo_20240702/02.nextPolish1/01_hifi_polish_r3/genome.nextpolish.fasta #
+genome_size = auto #genome size, auto = calculate genome size using the input ${genome} file. (default: auto)
+workdir = ./02_sgs_polish_r4 #
+polish_options = -p {multithread_jobs}
+[sgs_option]
+sgs_fofn = ./sgs.fofn #input short read files list, one file one line, paired-end files should be interleaved.
+sgs_options = -max_depth 100 -bwa
+
+########### Juicer 3DDNA ###########
+software/juicer-1.6/Local/scripts/juicer.sh \
+-g hic_hp1 \
+-s MboI \
+-t 20 \
+-d ${dir}/work_hic_hp1 \
+-p ${dir}/restriction_sites_hic_hp1/hic_hp1.chrom.sizes \
+-y ${dir}/restriction_sites_hic_hp1/hic_hp1_MboI.txt \
+-z ${dir}/reference_hic_hp1/hap1.ctg.fa \
+-D software/juicer-1.6/Local
+
+/xtdisk/xueyb_group/wangchenA/software/3d-dna-master-error-debug/run-asm-pipeline.sh \
+-r 0 \
+/xtdisk/xueyb_group/wangchenA/Petunia_denovo/HiFi/04.juicer/reference_hic_hp1_0926/hap1.ctg.wrapped.fasta \
+/xtdisk/xueyb_group/wangchenA/Petunia_denovo/HiFi/04.juicer/work_hic_hp1_0926/aligned/merged_nodups.txt
+
+/xtdisk/xueyb_group/wangchenA/software/3d-dna-master-error-debug/run-asm-pipeline-post-review.sh \
+-r ./hap1.ctg.wrapped.FINAL1.review6.assembly \
+reference_hic_hp1/hap1.ctg.wrapped.fasta \
+work_hic_hp1/aligned/merged_nodups.txt
+
+########### TGS-GapCloser ###########
+tgsgapcloser \
+--scaff S3L_hap1_gap.fa \
+--reads ont.pass.ul.fq.gz \
+--output hp1.pilon \
+--pilon pilon-1.24.jar \
+--ngs S3L.ngs.fastq.gz \
+--samtools samtools \
+--java /usr/bin/java \
+--thread 56 \
+--pilon_mem 100G \
 
